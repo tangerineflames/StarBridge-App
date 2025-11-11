@@ -1,5 +1,5 @@
 # schemas.py
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional
 from datetime import datetime
 
@@ -7,14 +7,14 @@ from datetime import datetime
 class TextLogIn(BaseModel):
     child_id: str
     content: str
-    sentiment: Optional[float] = None  # 可选字段
+    sentiment: Optional[float] = None
+
 
 class TextLogOut(TextLogIn):
     id: int
     created_at: datetime
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ---------- 预警 ----------
@@ -28,35 +28,34 @@ class AlertOut(BaseModel):
     acknowledged: bool
     created_at: datetime
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
-# ---------- 环境数据 ----------
+# ---------- 环境 ----------
 class EnvironmentIn(BaseModel):
     child_id: str
     temperature: Optional[float] = None
     humidity: Optional[float] = None
     light_lux: Optional[float] = None
 
+
 class EnvironmentOut(EnvironmentIn):
     id: int
     created_at: datetime
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ---------- 提醒 ----------
 class ReminderIn(BaseModel):
     child_id: str
     title: str
-    cron: str                 # 例如：DAILY 20:30
+    cron: str         # 例如：DAILY 20:30
     channel: str = "multi"
+
 
 class ReminderOut(ReminderIn):
     id: int
     created_at: datetime
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
