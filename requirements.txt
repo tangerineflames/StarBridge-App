@@ -7,3 +7,4 @@ opencv-python-headless>=4.7
 numpy>=1.25
 gunicorn
 alembic
+python-multipart
