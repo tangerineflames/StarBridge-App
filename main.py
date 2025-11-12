@@ -25,7 +25,6 @@ from schemas import (
 app = FastAPI(title="Remote Care API (Unified)")
 Base.metadata.create_all(bind=engine)
 
-
 def get_db():
     db = SessionLocal()
     try:
@@ -33,11 +32,9 @@ def get_db():
     finally:
         db.close()
 
-
 @app.get("/")
 def ping():
     return {"ok": True, "msg": "remote-care backend running (with video)"}
-
 
 # 环境数据：接收和存储
 @app.post("/api/environment", response_model=EnvironmentOut)
@@ -54,8 +51,7 @@ def create_environment(
     # 入库后触发分析
     analyze_environment(db, obj)
 
-    return EnvironmentOut(id=obj.id, **item.model_dump())
-
+    return EnvironmentOut(id=obj.id, created_at=obj.created_at, **item.model_dump())  # 确保返回 created_at
 
 @app.get("/api/environment", response_model=List[EnvironmentOut])
 def list_environment(child_id: str, db: Session = Depends(get_db)):
@@ -72,10 +68,10 @@ def list_environment(child_id: str, db: Session = Depends(get_db)):
             humidity=o.humidity,
             temperature=o.temperature,
             light_lux=o.light_lux,
+            created_at=o.created_at  # 确保返回 created_at
         )
         for o in q
     ]
-
 
 # 文本情绪：处理文本数据
 @app.post("/api/textlog", response_model=TextLogOut)
@@ -96,7 +92,6 @@ def create_textlog(item: TextLogIn, db: Session = Depends(get_db)):
         id=obj.id, child_id=obj.child_id, content=obj.content, sentiment=obj.sentiment
     )
 
-
 @app.get("/api/textlog", response_model=List[TextLogOut])
 def list_textlog(child_id: str, db: Session = Depends(get_db)):
     q = (
@@ -111,7 +106,6 @@ def list_textlog(child_id: str, db: Session = Depends(get_db)):
         )
         for o in q
     ]
-
 
 # 预警：处理预警消息
 @app.get("/api/alerts", response_model=List[AlertOut])
@@ -135,7 +129,6 @@ def list_alerts(child_id: str, db: Session = Depends(get_db)):
         for o in q
     ]
 
-
 @app.post("/api/alerts/{aid}/ack")
 def ack_alert(aid: int, db: Session = Depends(get_db)):
     o = db.get(Alert, aid)
@@ -145,7 +138,6 @@ def ack_alert(aid: int, db: Session = Depends(get_db)):
     db.commit()
     return {"ok": True}
 
-
 # 提醒：提醒创建
 @app.post("/api/reminder", response_model=ReminderOut)
 def create_reminder(item: ReminderIn, db: Session = Depends(get_db)):
@@ -154,7 +146,6 @@ def create_reminder(item: ReminderIn, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(obj)
     return ReminderOut(id=obj.id, **item.model_dump())
-
 
 @app.get("/api/reminder", response_model=List[ReminderOut])
 def list_reminder(child_id: str, db: Session = Depends(get_db)):
@@ -166,7 +157,6 @@ def list_reminder(child_id: str, db: Session = Depends(get_db)):
         for o in q
     ]
 
-
 # 规则引擎：处理环境数据的异常分析
 def create_alert(
     db: Session, *, child_id: str, level: str, title: str, message: str, source: str
@@ -176,7 +166,6 @@ def create_alert(
     )
     db.add(a)
     db.commit()
-
 
 def analyze_environment(db: Session, env: Environment):
     t = env.temperature
@@ -214,7 +203,6 @@ def analyze_environment(db: Session, env: Environment):
             message="光照偏暗，注意用眼卫生。",
         )
 
-
 # 视频流：接收和显示
 UDP_IP = "0.0.0.0"
 UDP_PORT = 8080
@@ -224,7 +212,6 @@ FRAME_SIZE = (360, 640)
 _latest_frame: Optional[np.ndarray] = None
 _latest_lock = threading.Lock()
 _stop_flag = False
-
 
 def _udp_receiver():
     """后台接收线程：接收 JPEG（二进制）并解码为 BGR 帧，更新缓存。"""
@@ -256,19 +243,16 @@ def _udp_receiver():
         pass
     print("[UDP] Receiver stopped.")
 
-
 def _blank_jpeg() -> bytes:
     blank = np.zeros((FRAME_SIZE[0], FRAME_SIZE[1], 3), dtype=np.uint8)
     ok, buf = cv2.imencode(".jpg", blank)
     return buf.tobytes() if ok else b""
-
 
 def _encode_jpeg(img: np.ndarray) -> Optional[bytes]:
     ok, buf = cv2.imencode(".jpg", img)
     if not ok:
         return None
     return buf.tobytes()
-
 
 def _frame_generator():
     boundary = b"--frame\r\n"
@@ -284,7 +268,6 @@ def _frame_generator():
 
         yield boundary + header + jpg + b"\r\n"
 
-
 @app.get("/video")
 def video_feed():
     """ 在浏览器中查看视频流 """
@@ -293,10 +276,8 @@ def video_feed():
         media_type="multipart/x-mixed-replace; boundary=frame",
     )
 
-
 # 启动/关闭生命周期
 _udp_thread: Optional[threading.Thread] = None
-
 
 @app.on_event("startup")
 def _on_startup():
@@ -305,7 +286,6 @@ def _on_startup():
     _udp_thread = threading.Thread(target=_udp_receiver, daemon=True)
     _udp_thread.start()
     print("[APP] Startup complete; UDP receiver running.")
-
 
 @app.on_event("shutdown")
 def _on_shutdown():
