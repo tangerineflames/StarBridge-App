@@ -3,7 +3,7 @@ uvicorn[standard]>=0.21
 SQLAlchemy>=1.4
 psycopg2-binary>=2.9
 pydantic>=2.5
-opencv-python-headless>=4.7
+opencv-python==4.5.1.48 
 numpy>=1.25
 gunicorn
 alembic
