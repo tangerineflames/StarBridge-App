@@ -7,6 +7,8 @@ import time
 from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+import cv2
+import numpy as np
 
 # 本地模块
 from database import Base, engine, SessionLocal
@@ -241,7 +243,7 @@ def _udp_receiver():
         except TimeoutError:
             continue
         except Exception as e:
-            print(f"[UDP] recv error: {e}")
+            print(f"[UDP] recv error: {e}, retrying...")
             time.sleep(0.05)
             continue
 
@@ -303,6 +305,8 @@ def _on_startup():
 
 @app.on_event("shutdown")
 def _on_shutdown():
-    global _stop_flag
+    global _stop_flag, _udp_thread
     _stop_flag = True
-    print("[APP] Shutdown signal sent; waiting for UDP receiver to stop.")
+    if _udp_thread is not None:
+        _udp_thread.join()  # 等待线程退出
+    print("[APP] Shutdown signal sent; UDP receiver stopped.")
