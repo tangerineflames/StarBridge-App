@@ -7,7 +7,7 @@ import time
 
 import cv2
 import numpy as np
-from fastapi import FastAPI, Depends, BackgroundTasks, HTTPException
+from fastapi import FastAPI, Depends, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -21,9 +21,12 @@ from schemas import (
     ReminderIn, ReminderOut,
 )
 
+# -------------------------------------------------------------------
 # App 初始化 & DB
+# -------------------------------------------------------------------
 app = FastAPI(title="Remote Care API (Unified)")
 Base.metadata.create_all(bind=engine)
+
 
 def get_db():
     db = SessionLocal()
@@ -32,26 +35,39 @@ def get_db():
     finally:
         db.close()
 
+
 @app.get("/")
 def ping():
     return {"ok": True, "msg": "remote-care backend running (with video)"}
 
+
+# -------------------------------------------------------------------
 # 环境数据：接收和存储
+# -------------------------------------------------------------------
 @app.post("/api/environment", response_model=EnvironmentOut)
 def create_environment(
     item: EnvironmentIn,
-    background_tasks: BackgroundTasks,  # 移动了的位置
-    db: Session = Depends(get_db)
+    background_tasks: BackgroundTasks,   # 位置在前面，无默认值
+    db: Session = Depends(get_db),
 ):
     obj = Environment(**item.model_dump())
     db.add(obj)
     db.commit()
     db.refresh(obj)
 
-    # 入库后触发分析
+    # 入库后触发分析（同步执行就够了）
     analyze_environment(db, obj)
 
-    return EnvironmentOut(id=obj.id, created_at=obj.created_at, **item.model_dump())  # 确保返回 created_at
+    # 注意：EnvironmentOut 里有 created_at，是必填的
+    return EnvironmentOut(
+        id=obj.id,
+        child_id=obj.child_id,
+        temperature=obj.temperature,
+        humidity=obj.humidity,
+        light_lux=obj.light_lux,
+        created_at=obj.created_at,
+    )
+
 
 @app.get("/api/environment", response_model=List[EnvironmentOut])
 def list_environment(child_id: str, db: Session = Depends(get_db)):
@@ -65,15 +81,18 @@ def list_environment(child_id: str, db: Session = Depends(get_db)):
         EnvironmentOut(
             id=o.id,
             child_id=o.child_id,
-            humidity=o.humidity,
             temperature=o.temperature,
+            humidity=o.humidity,
             light_lux=o.light_lux,
-            created_at=o.created_at  # 确保返回 created_at
+            created_at=o.created_at,
         )
         for o in q
     ]
 
+
+# -------------------------------------------------------------------
 # 文本情绪：处理文本数据
+# -------------------------------------------------------------------
 @app.post("/api/textlog", response_model=TextLogOut)
 def create_textlog(item: TextLogIn, db: Session = Depends(get_db)):
     score = item.sentiment
@@ -88,9 +107,15 @@ def create_textlog(item: TextLogIn, db: Session = Depends(get_db)):
     # 文本情绪规则
     analyze_textlog(db, obj)
 
+    # 补上 created_at
     return TextLogOut(
-        id=obj.id, child_id=obj.child_id, content=obj.content, sentiment=obj.sentiment
+        id=obj.id,
+        child_id=obj.child_id,
+        content=obj.content,
+        sentiment=obj.sentiment,
+        created_at=obj.created_at,
     )
+
 
 @app.get("/api/textlog", response_model=List[TextLogOut])
 def list_textlog(child_id: str, db: Session = Depends(get_db)):
@@ -102,12 +127,19 @@ def list_textlog(child_id: str, db: Session = Depends(get_db)):
     )
     return [
         TextLogOut(
-            id=o.id, child_id=o.child_id, content=o.content, sentiment=o.sentiment
+            id=o.id,
+            child_id=o.child_id,
+            content=o.content,
+            sentiment=o.sentiment,
+            created_at=o.created_at,
         )
         for o in q
     ]
 
+
+# -------------------------------------------------------------------
 # 预警：处理预警消息
+# -------------------------------------------------------------------
 @app.get("/api/alerts", response_model=List[AlertOut])
 def list_alerts(child_id: str, db: Session = Depends(get_db)):
     q = (
@@ -125,9 +157,11 @@ def list_alerts(child_id: str, db: Session = Depends(get_db)):
             message=o.message,
             source=o.source,
             acknowledged=o.acknowledged,
+            created_at=o.created_at,   # ★ 关键：补上 created_at
         )
         for o in q
     ]
+
 
 @app.post("/api/alerts/{aid}/ack")
 def ack_alert(aid: int, db: Session = Depends(get_db)):
@@ -138,26 +172,50 @@ def ack_alert(aid: int, db: Session = Depends(get_db)):
     db.commit()
     return {"ok": True}
 
-# 提醒：提醒创建
+
+# -------------------------------------------------------------------
+# 提醒：提醒创建 / 列表
+# -------------------------------------------------------------------
 @app.post("/api/reminder", response_model=ReminderOut)
 def create_reminder(item: ReminderIn, db: Session = Depends(get_db)):
     obj = Reminder(**item.model_dump())
     db.add(obj)
     db.commit()
     db.refresh(obj)
-    return ReminderOut(id=obj.id, **item.model_dump())
+    return ReminderOut(
+        id=obj.id,
+        child_id=obj.child_id,
+        title=obj.title,
+        cron=obj.cron,
+        channel=obj.channel,
+        created_at=obj.created_at,   # ★ 补上
+    )
+
 
 @app.get("/api/reminder", response_model=List[ReminderOut])
 def list_reminder(child_id: str, db: Session = Depends(get_db)):
-    q = db.query(Reminder).filter(Reminder.child_id == child_id).all()
+    q = (
+        db.query(Reminder)
+        .filter(Reminder.child_id == child_id)
+        .order_by(Reminder.created_at.desc())
+        .all()
+    )
     return [
         ReminderOut(
-            id=o.id, child_id=o.child_id, title=o.title, cron=o.cron, channel=o.channel
+            id=o.id,
+            child_id=o.child_id,
+            title=o.title,
+            cron=o.cron,
+            channel=o.channel,
+            created_at=o.created_at,   # ★ 补上
         )
         for o in q
     ]
 
-# 规则引擎：处理环境数据的异常分析
+
+# -------------------------------------------------------------------
+# 规则引擎：环境 & 文本
+# -------------------------------------------------------------------
 def create_alert(
     db: Session, *, child_id: str, level: str, title: str, message: str, source: str
 ):
@@ -166,6 +224,7 @@ def create_alert(
     )
     db.add(a)
     db.commit()
+
 
 def analyze_environment(db: Session, env: Environment):
     t = env.temperature
@@ -203,7 +262,34 @@ def analyze_environment(db: Session, env: Environment):
             message="光照偏暗，注意用眼卫生。",
         )
 
-# 视频流：接收和显示
+
+def rule_based_sentiment(text: str) -> float:
+    neg = ["难过", "生气", "害怕", "不想", "烦", "讨厌", "哭"]
+    pos = ["开心", "喜欢", "高兴", "满意", "放松"]
+    score = 0.0
+    if any(w in text for w in neg):
+        score -= 0.6
+    if any(w in text for w in pos):
+        score += 0.6
+    return max(-1.0, min(1.0, score))
+
+
+def analyze_textlog(db: Session, tl: TextLog):
+    s = tl.sentiment or 0.0
+    if s <= -0.5:
+        create_alert(
+            db,
+            child_id=tl.child_id,
+            level="warn",
+            source="text",
+            title="情绪低落迹象",
+            message=f"文本情绪分 {s:.2f}，建议关注沟通与疏导。",
+        )
+
+
+# -------------------------------------------------------------------
+# 视频流：UDP 接收和 MJPEG 输出
+# -------------------------------------------------------------------
 UDP_IP = "0.0.0.0"
 UDP_PORT = 8080
 UDP_RECV_BUFSIZE = 1024 * 1024
@@ -212,6 +298,7 @@ FRAME_SIZE = (360, 640)
 _latest_frame: Optional[np.ndarray] = None
 _latest_lock = threading.Lock()
 _stop_flag = False
+
 
 def _udp_receiver():
     """后台接收线程：接收 JPEG（二进制）并解码为 BGR 帧，更新缓存。"""
@@ -243,16 +330,19 @@ def _udp_receiver():
         pass
     print("[UDP] Receiver stopped.")
 
+
 def _blank_jpeg() -> bytes:
     blank = np.zeros((FRAME_SIZE[0], FRAME_SIZE[1], 3), dtype=np.uint8)
     ok, buf = cv2.imencode(".jpg", blank)
     return buf.tobytes() if ok else b""
+
 
 def _encode_jpeg(img: np.ndarray) -> Optional[bytes]:
     ok, buf = cv2.imencode(".jpg", img)
     if not ok:
         return None
     return buf.tobytes()
+
 
 def _frame_generator():
     boundary = b"--frame\r\n"
@@ -268,6 +358,7 @@ def _frame_generator():
 
         yield boundary + header + jpg + b"\r\n"
 
+
 @app.get("/video")
 def video_feed():
     """ 在浏览器中查看视频流 """
@@ -276,8 +367,12 @@ def video_feed():
         media_type="multipart/x-mixed-replace; boundary=frame",
     )
 
+
+# -------------------------------------------------------------------
 # 启动/关闭生命周期
+# -------------------------------------------------------------------
 _udp_thread: Optional[threading.Thread] = None
+
 
 @app.on_event("startup")
 def _on_startup():
@@ -286,6 +381,7 @@ def _on_startup():
     _udp_thread = threading.Thread(target=_udp_receiver, daemon=True)
     _udp_thread.start()
     print("[APP] Startup complete; UDP receiver running.")
+
 
 @app.on_event("shutdown")
 def _on_shutdown():
