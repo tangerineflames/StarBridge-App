@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import threading
-from socket import socket, AF_INET, SOCK_DGRAM
 from typing import List, Optional
+import threading
 import time
 
 import cv2
 import numpy as np
-from fastapi import FastAPI, Depends, BackgroundTasks
+from fastapi import FastAPI, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -21,9 +20,9 @@ from schemas import (
     ReminderIn, ReminderOut,
 )
 
-# -------------------------------------------------------------------
+# ---------------------------------------------------------------------
 # App 初始化 & DB
-# -------------------------------------------------------------------
+# ---------------------------------------------------------------------
 app = FastAPI(title="Remote Care API (Unified)")
 Base.metadata.create_all(bind=engine)
 
@@ -38,16 +37,15 @@ def get_db():
 
 @app.get("/")
 def ping():
-    return {"ok": True, "msg": "remote-care backend running (with video)"}
+    return {"ok": True, "msg": "remote-care backend running (with video/ws)"}
 
 
-# -------------------------------------------------------------------
+# ---------------------------------------------------------------------
 # 环境数据：接收和存储
-# -------------------------------------------------------------------
+# ---------------------------------------------------------------------
 @app.post("/api/environment", response_model=EnvironmentOut)
 def create_environment(
     item: EnvironmentIn,
-    background_tasks: BackgroundTasks,   # 位置在前面，无默认值
     db: Session = Depends(get_db),
 ):
     obj = Environment(**item.model_dump())
@@ -55,10 +53,10 @@ def create_environment(
     db.commit()
     db.refresh(obj)
 
-    # 入库后触发分析（同步执行就够了）
+    # 入库后触发分析
     analyze_environment(db, obj)
 
-    # 注意：EnvironmentOut 里有 created_at，是必填的
+    # 注意：补上 created_at
     return EnvironmentOut(
         id=obj.id,
         child_id=obj.child_id,
@@ -81,8 +79,8 @@ def list_environment(child_id: str, db: Session = Depends(get_db)):
         EnvironmentOut(
             id=o.id,
             child_id=o.child_id,
-            temperature=o.temperature,
             humidity=o.humidity,
+            temperature=o.temperature,
             light_lux=o.light_lux,
             created_at=o.created_at,
         )
@@ -90,9 +88,9 @@ def list_environment(child_id: str, db: Session = Depends(get_db)):
     ]
 
 
-# -------------------------------------------------------------------
+# ---------------------------------------------------------------------
 # 文本情绪：处理文本数据
-# -------------------------------------------------------------------
+# ---------------------------------------------------------------------
 @app.post("/api/textlog", response_model=TextLogOut)
 def create_textlog(item: TextLogIn, db: Session = Depends(get_db)):
     score = item.sentiment
@@ -107,13 +105,12 @@ def create_textlog(item: TextLogIn, db: Session = Depends(get_db)):
     # 文本情绪规则
     analyze_textlog(db, obj)
 
-    # 补上 created_at
     return TextLogOut(
         id=obj.id,
         child_id=obj.child_id,
         content=obj.content,
         sentiment=obj.sentiment,
-        created_at=obj.created_at,
+        created_at=obj.created_at,   # 补上 created_at
     )
 
 
@@ -131,15 +128,15 @@ def list_textlog(child_id: str, db: Session = Depends(get_db)):
             child_id=o.child_id,
             content=o.content,
             sentiment=o.sentiment,
-            created_at=o.created_at,
+            created_at=o.created_at,   # 补上 created_at
         )
         for o in q
     ]
 
 
-# -------------------------------------------------------------------
+# ---------------------------------------------------------------------
 # 预警：处理预警消息
-# -------------------------------------------------------------------
+# ---------------------------------------------------------------------
 @app.get("/api/alerts", response_model=List[AlertOut])
 def list_alerts(child_id: str, db: Session = Depends(get_db)):
     q = (
@@ -157,7 +154,7 @@ def list_alerts(child_id: str, db: Session = Depends(get_db)):
             message=o.message,
             source=o.source,
             acknowledged=o.acknowledged,
-            created_at=o.created_at,   # ★ 关键：补上 created_at
+            created_at=o.created_at,   # 补上 created_at
         )
         for o in q
     ]
@@ -173,9 +170,9 @@ def ack_alert(aid: int, db: Session = Depends(get_db)):
     return {"ok": True}
 
 
-# -------------------------------------------------------------------
-# 提醒：提醒创建 / 列表
-# -------------------------------------------------------------------
+# ---------------------------------------------------------------------
+# 提醒：创建 / 列表
+# ---------------------------------------------------------------------
 @app.post("/api/reminder", response_model=ReminderOut)
 def create_reminder(item: ReminderIn, db: Session = Depends(get_db)):
     obj = Reminder(**item.model_dump())
@@ -188,18 +185,13 @@ def create_reminder(item: ReminderIn, db: Session = Depends(get_db)):
         title=obj.title,
         cron=obj.cron,
         channel=obj.channel,
-        created_at=obj.created_at,   # ★ 补上
+        created_at=obj.created_at,   # 补上 created_at
     )
 
 
 @app.get("/api/reminder", response_model=List[ReminderOut])
 def list_reminder(child_id: str, db: Session = Depends(get_db)):
-    q = (
-        db.query(Reminder)
-        .filter(Reminder.child_id == child_id)
-        .order_by(Reminder.created_at.desc())
-        .all()
-    )
+    q = db.query(Reminder).filter(Reminder.child_id == child_id).all()
     return [
         ReminderOut(
             id=o.id,
@@ -207,15 +199,15 @@ def list_reminder(child_id: str, db: Session = Depends(get_db)):
             title=o.title,
             cron=o.cron,
             channel=o.channel,
-            created_at=o.created_at,   # ★ 补上
+            created_at=o.created_at,   # 补上 created_at
         )
         for o in q
     ]
 
 
-# -------------------------------------------------------------------
-# 规则引擎：环境 & 文本
-# -------------------------------------------------------------------
+# ---------------------------------------------------------------------
+# 规则引擎
+# ---------------------------------------------------------------------
 def create_alert(
     db: Session, *, child_id: str, level: str, title: str, message: str, source: str
 ):
@@ -287,48 +279,13 @@ def analyze_textlog(db: Session, tl: TextLog):
         )
 
 
-# -------------------------------------------------------------------
-# 视频流：UDP 接收和 MJPEG 输出
-# -------------------------------------------------------------------
-UDP_IP = "0.0.0.0"
-UDP_PORT = 8080
-UDP_RECV_BUFSIZE = 1024 * 1024
+# ---------------------------------------------------------------------
+# 视频流：WebSocket 上传 + MJPEG 输出
+# ---------------------------------------------------------------------
 FRAME_SIZE = (360, 640)
 
 _latest_frame: Optional[np.ndarray] = None
 _latest_lock = threading.Lock()
-_stop_flag = False
-
-
-def _udp_receiver():
-    """后台接收线程：接收 JPEG（二进制）并解码为 BGR 帧，更新缓存。"""
-    global _latest_frame
-    sock = socket(AF_INET, SOCK_DGRAM)
-    sock.bind((UDP_IP, UDP_PORT))
-    sock.settimeout(1.0)
-    print(f"[UDP] Listening on {UDP_IP}:{UDP_PORT}")
-
-    while not _stop_flag:
-        try:
-            data, _ = sock.recvfrom(UDP_RECV_BUFSIZE)
-        except TimeoutError:
-            continue
-        except Exception as e:
-            print(f"[UDP] recv error: {e}")
-            time.sleep(0.05)
-            continue
-
-        arr = np.frombuffer(data, dtype=np.uint8)
-        img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-        if img is not None:
-            with _latest_lock:
-                _latest_frame = img
-
-    try:
-        sock.close()
-    except Exception:
-        pass
-    print("[UDP] Receiver stopped.")
 
 
 def _blank_jpeg() -> bytes:
@@ -338,7 +295,7 @@ def _blank_jpeg() -> bytes:
 
 
 def _encode_jpeg(img: np.ndarray) -> Optional[bytes]:
-    ok, buf = cv2.imencode(".jpg", img)
+    ok, buf = cv2.imencode(".jpg", img, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
     if not ok:
         return None
     return buf.tobytes()
@@ -357,34 +314,51 @@ def _frame_generator():
             jpg = blank
 
         yield boundary + header + jpg + b"\r\n"
+        time.sleep(0.03)  # 控制帧率，大约 30fps -> 0.03s 一帧
 
 
 @app.get("/video")
 def video_feed():
-    """ 在浏览器中查看视频流 """
+    """App / 浏览器 访问的视频流接口（MJPEG）"""
     return StreamingResponse(
         _frame_generator(),
         media_type="multipart/x-mixed-replace; boundary=frame",
     )
 
 
-# -------------------------------------------------------------------
-# 启动/关闭生命周期
-# -------------------------------------------------------------------
-_udp_thread: Optional[threading.Thread] = None
+@app.websocket("/ws/video")
+async def ws_video(websocket: WebSocket):
+    """
+    摄像头端通过 WebSocket 发送 JPEG 帧：
+    - URL（云端）：wss://你的域名/ws/video
+    - 消息内容：二进制 JPEG 数据
+    """
+    await websocket.accept()
+    print("[WS] video client connected")
 
+    global _latest_frame
+    try:
+        while True:
+            data = await websocket.receive_bytes()
+            arr = np.frombuffer(data, dtype=np.uint8)
+            img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+            if img is None:
+                continue
 
-@app.on_event("startup")
-def _on_startup():
-    global _udp_thread, _stop_flag
-    _stop_flag = False
-    _udp_thread = threading.Thread(target=_udp_receiver, daemon=True)
-    _udp_thread.start()
-    print("[APP] Startup complete; UDP receiver running.")
+            # 缩放到统一尺寸，避免内存爆炸
+            h, w = img.shape[:2]
+            if (h, w) != (FRAME_SIZE[0], FRAME_SIZE[1]):
+                img = cv2.resize(img, (FRAME_SIZE[1], FRAME_SIZE[0]))
 
+            with _latest_lock:
+                _latest_frame = img
 
-@app.on_event("shutdown")
-def _on_shutdown():
-    global _stop_flag
-    _stop_flag = True
-    print("[APP] Shutdown signal sent; waiting for UDP receiver to stop.")
+    except WebSocketDisconnect:
+        print("[WS] video client disconnected")
+    except Exception as e:
+        print(f"[WS] error: {e}")
+    finally:
+        try:
+            await websocket.close()
+        except Exception:
+            pass
