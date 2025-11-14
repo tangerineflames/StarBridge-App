@@ -8,3 +8,5 @@ numpy>=1.25
 gunicorn
 alembic
 python-multipart
+websockets>=10.4
+
