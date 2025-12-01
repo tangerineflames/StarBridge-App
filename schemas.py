@@ -37,6 +37,7 @@ class EnvironmentIn(BaseModel):
     temperature: Optional[float] = None
     humidity: Optional[float] = None
     light_lux: Optional[float] = None
+    noise_db: Optional[float] = None  # ✅ 新增：噪音（dB）
 
 
 class EnvironmentOut(EnvironmentIn):
@@ -55,6 +56,20 @@ class ReminderIn(BaseModel):
 
 
 class ReminderOut(ReminderIn):
+    id: int
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ---------- 健康 ----------
+class HealthIn(BaseModel):
+    child_id: str
+    heart_rate: Optional[int] = None   # 心率（次/分）
+    spo2: Optional[float] = None       # 血氧 %
+
+
+class HealthOut(HealthIn):
     id: int
     created_at: datetime
 

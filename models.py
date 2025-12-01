@@ -1,19 +1,16 @@
 # models.py
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, Text, func
-from database import Base
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, Text
+from sqlalchemy.sql import func
 
-# 注意：
-# - 使用 Text 存放可能较长的 content 字段（比 String 更合适）
-# - 为常用的短字符串指定长度（可提高可读性），但不是必需
-# - created_at 使用 server_default=func.now()，在 Postgres 上工作良好
+from database import Base
 
 class TextLog(Base):
     __tablename__ = "textlogs"
 
     id = Column(Integer, primary_key=True, index=True)
     child_id = Column(String(64), index=True, nullable=False)
-    content = Column(Text, nullable=False)                 # 可能较长，使用 Text
-    sentiment = Column(Float, nullable=True)                # -1.0 ~ 1.0，可选
+    content = Column(Text, nullable=False)
+    sentiment = Column(Float, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     def __repr__(self):
@@ -26,8 +23,8 @@ class Alert(Base):
     child_id = Column(String(64), index=True, nullable=False)
     level = Column(String(16), default="info", nullable=False)   # info / warn / critical
     title = Column(String(255), nullable=False)
-    message = Column(Text, nullable=False)                       # 详细说明，使用 Text
-    source = Column(String(50), default="other", nullable=False) # environment / text / other
+    message = Column(Text, nullable=False)
+    source = Column(String(50), default="other", nullable=False) # environment / text / health / other
     acknowledged = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
@@ -42,6 +39,7 @@ class Environment(Base):
     temperature = Column(Float, nullable=True)
     humidity = Column(Float, nullable=True)
     light_lux = Column(Float, nullable=True)
+    noise_db = Column(Float, nullable=True)  # ✅ 新增：噪音，单位 dB
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     def __repr__(self):
@@ -53,9 +51,21 @@ class Reminder(Base):
     id = Column(Integer, primary_key=True, index=True)
     child_id = Column(String(64), index=True, nullable=False)
     title = Column(String(255), nullable=False)
-    cron = Column(String(64), nullable=False)   # 简化的重复规则（例如：DAILY 20:30）
+    cron = Column(String(64), nullable=False)   # 简化的重复规则
     channel = Column(String(32), default="multi", nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     def __repr__(self):
         return f"<Reminder id={self.id} cron={self.cron} child_id={self.child_id}>"
+
+class HealthStatus(Base):
+    __tablename__ = "health_status"  # ✅ 新表：个人健康
+
+    id = Column(Integer, primary_key=True, index=True)
+    child_id = Column(String(64), index=True, nullable=False)
+    heart_rate = Column(Integer, nullable=True)  # 心率（次/分）
+    spo2 = Column(Float, nullable=True)         # 血氧饱和度 %
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    def __repr__(self):
+        return f"<HealthStatus id={self.id} child_id={self.child_id}>"

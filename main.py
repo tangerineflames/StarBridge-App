@@ -6,24 +6,25 @@ import time
 
 import cv2
 import numpy as np
-from fastapi import FastAPI, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Depends
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 # 本地模块
 from database import Base, engine, SessionLocal
-from models import Environment, TextLog, Alert, Reminder
+from models import Environment, TextLog, Alert, Reminder, HealthStatus
 from schemas import (
     EnvironmentIn, EnvironmentOut,
     TextLogIn, TextLogOut,
     AlertOut,
     ReminderIn, ReminderOut,
+    HealthIn, HealthOut,
 )
 
 # ================================================================
 # FastAPI 初始化 + Database 初始化
 # ================================================================
-app = FastAPI(title="Remote Care API (Unified)")
+app = FastAPI(title="Remote Care API (Unified, UDP Video)")
 Base.metadata.create_all(bind=engine)
 
 def get_db():
@@ -35,10 +36,10 @@ def get_db():
 
 @app.get("/")
 def ping():
-    return {"ok": True, "msg": "remote-care backend running (with WebSocket video)"}
+    return {"ok": True, "msg": "remote-care backend running (with UDP video)"}
 
 # ================================================================
-# 环境数据
+# 环境数据（带噪音）
 # ================================================================
 @app.post("/api/environment", response_model=EnvironmentOut)
 def create_environment(item: EnvironmentIn, db: Session = Depends(get_db)):
@@ -47,7 +48,7 @@ def create_environment(item: EnvironmentIn, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(obj)
 
-    # 自动分析
+    # 自动分析规则
     analyze_environment(db, obj)
 
     return EnvironmentOut(
@@ -56,6 +57,7 @@ def create_environment(item: EnvironmentIn, db: Session = Depends(get_db)):
         temperature=obj.temperature,
         humidity=obj.humidity,
         light_lux=obj.light_lux,
+        noise_db=obj.noise_db,
         created_at=obj.created_at,
     )
 
@@ -74,6 +76,7 @@ def list_environment(child_id: str, db: Session = Depends(get_db)):
             temperature=o.temperature,
             humidity=o.humidity,
             light_lux=o.light_lux,
+            noise_db=o.noise_db,
             created_at=o.created_at,
         )
         for o in q
@@ -191,6 +194,45 @@ def list_reminder(child_id: str, db: Session = Depends(get_db)):
     ]
 
 # ================================================================
+# ✅ 个人健康：心率 & 血氧
+# ================================================================
+@app.post("/api/health", response_model=HealthOut)
+def create_health(item: HealthIn, db: Session = Depends(get_db)):
+    obj = HealthStatus(**item.model_dump())
+    db.add(obj)
+    db.commit()
+    db.refresh(obj)
+
+    analyze_health(db, obj)
+
+    return HealthOut(
+        id=obj.id,
+        child_id=obj.child_id,
+        heart_rate=obj.heart_rate,
+        spo2=obj.spo2,
+        created_at=obj.created_at,
+    )
+
+@app.get("/api/health", response_model=List[HealthOut])
+def list_health(child_id: str, db: Session = Depends(get_db)):
+    q = (
+        db.query(HealthStatus)
+        .filter(HealthStatus.child_id == child_id)
+        .order_by(HealthStatus.created_at.desc())
+        .all()
+    )
+    return [
+        HealthOut(
+            id=o.id,
+            child_id=o.child_id,
+            heart_rate=o.heart_rate,
+            spo2=o.spo2,
+            created_at=o.created_at,
+        )
+        for o in q
+    ]
+
+# ================================================================
 # 规则引擎
 # ================================================================
 def create_alert(
@@ -206,7 +248,9 @@ def analyze_environment(db: Session, env: Environment):
     t = env.temperature
     h = env.humidity
     lx = env.light_lux
+    noise = getattr(env, "noise_db", None)
 
+    # 温度
     if t is not None and (t < 16 or t > 29):
         lvl = "critical" if (t < 14 or t > 31) else "warn"
         create_alert(
@@ -218,6 +262,7 @@ def analyze_environment(db: Session, env: Environment):
             message=f"当前温度 {t:.1f}℃，请注意调整。",
         )
 
+    # 湿度
     if h is not None and (h < 30 or h > 75):
         create_alert(
             db,
@@ -228,6 +273,7 @@ def analyze_environment(db: Session, env: Environment):
             message=f"湿度 {h:.0f}%，请加湿或除湿。",
         )
 
+    # 光照
     if lx is not None and lx < 50:
         create_alert(
             db,
@@ -236,6 +282,18 @@ def analyze_environment(db: Session, env: Environment):
             source="environment",
             title="光照偏暗",
             message="光照不足，请注意用眼。",
+        )
+
+    # ✅ 噪音（>65 dB 警告，>80 dB 严重）
+    if noise is not None and noise > 65:
+        lvl = "critical" if noise > 80 else "warn"
+        create_alert(
+            db,
+            child_id=env.child_id,
+            level=lvl,
+            source="environment",
+            title="环境噪音偏大",
+            message=f"当前噪声约 {noise:.1f} dB，建议降低噪音或更换环境。",
         )
 
 def rule_based_sentiment(text: str) -> float:
@@ -260,13 +318,83 @@ def analyze_textlog(db: Session, tl: TextLog):
             message=f"文本情绪得分 {s:.2f}，建议关注沟通。",
         )
 
+def analyze_health(db: Session, h: HealthStatus):
+    hr = h.heart_rate
+    spo2 = h.spo2
+
+    # 心率简单范围（示例）
+    if hr is not None and (hr < 55 or hr > 130):
+        lvl = "critical" if (hr < 45 or hr > 150) else "warn"
+        create_alert(
+            db,
+            child_id=h.child_id,
+            level=lvl,
+            source="health",
+            title="心率异常",
+            message=f"当前心率约 {hr} 次/分，请留意或咨询医生。",
+        )
+
+    # 血氧
+    if spo2 is not None and spo2 < 94:
+        lvl = "critical" if spo2 < 90 else "warn"
+        create_alert(
+            db,
+            child_id=h.child_id,
+            level=lvl,
+            source="health",
+            title="血氧偏低",
+            message=f"当前血氧约 {spo2:.1f}%，建议及时关注。",
+        )
+
 # ================================================================
-# WebSocket 视频上传 + MJPEG 视频流
+# ✅ UDP 视频接收 + MJPEG 输出（保持不变）
 # ================================================================
+UDP_IP = "0.0.0.0"
+UDP_PORT = 8080
+UDP_RECV_BUFSIZE = 1024 * 1024
+
 FRAME_SIZE = (360, 640)
 
 _latest_frame: Optional[np.ndarray] = None
 _latest_lock = threading.Lock()
+_stop_flag = False
+
+def _udp_receiver():
+    from socket import socket, AF_INET, SOCK_DGRAM, timeout as SocketTimeout
+
+    global _latest_frame
+
+    sock = socket(AF_INET, SOCK_DGRAM)
+    sock.bind((UDP_IP, UDP_PORT))
+    sock.settimeout(1.0)
+    print(f"[UDP] Listening on {UDP_IP}:{UDP_PORT}")
+
+    while not _stop_flag:
+        try:
+            data, addr = sock.recvfrom(UDP_RECV_BUFSIZE)
+        except SocketTimeout:
+            continue
+        except Exception as e:
+            print("[UDP] recv error:", e)
+            time.sleep(0.05)
+            continue
+
+        arr = np.frombuffer(data, dtype=np.uint8)
+        img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        if img is None:
+            continue
+
+        if img.shape[0] != FRAME_SIZE[0] or img.shape[1] != FRAME_SIZE[1]:
+            img = cv2.resize(img, (FRAME_SIZE[1], FRAME_SIZE[0]))
+
+        with _latest_lock:
+            _latest_frame = img
+
+    try:
+        sock.close()
+    except Exception:
+        pass
+    print("[UDP] Receiver stopped.")
 
 def _blank_jpeg() -> bytes:
     blank = np.zeros((FRAME_SIZE[0], FRAME_SIZE[1], 3), dtype=np.uint8)
@@ -285,6 +413,7 @@ def _frame_generator():
     while True:
         with _latest_lock:
             frame = None if _latest_frame is None else _latest_frame.copy()
+
         jpg = _encode_jpeg(frame) if frame is not None else blank
         if jpg is None:
             jpg = blank
@@ -299,32 +428,18 @@ def video_feed():
         media_type="multipart/x-mixed-replace; boundary=frame",
     )
 
-@app.websocket("/ws/video")
-async def ws_video(websocket: WebSocket):
-    await websocket.accept()
-    print("[WS] video connected")
+_udp_thread: Optional[threading.Thread] = None
 
-    global _latest_frame
-    try:
-        while True:
-            data = await websocket.receive_bytes()
-            arr = np.frombuffer(data, dtype=np.uint8)
-            img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-            if img is None:
-                continue
+@app.on_event("startup")
+def _on_startup():
+    global _udp_thread, _stop_flag
+    _stop_flag = False
+    _udp_thread = threading.Thread(target=_udp_receiver, daemon=True)
+    _udp_thread.start()
+    print("[APP] Startup complete; UDP receiver running.")
 
-            if img.shape[:2] != FRAME_SIZE:
-                img = cv2.resize(img, (FRAME_SIZE[1], FRAME_SIZE[0]))
-
-            with _latest_lock:
-                _latest_frame = img
-
-    except WebSocketDisconnect:
-        print("[WS] disconnected")
-    except Exception as e:
-        print("[WS] error:", e)
-    finally:
-        try:
-            await websocket.close()
-        except:
-            pass
+@app.on_event("shutdown")
+def _on_shutdown():
+    global _stop_flag
+    _stop_flag = True
+    print("[APP] Shutdown signal sent; UDP receiver will stop.")

@@ -1,0 +1,113 @@
+[33mcommit 7d64d42d5628be1aabf9c5a364ac7b90551ea462[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmaster[m[33m)[m
+Author: tangerineflames <3455985135@qq.com>
+Date:   Tue Dec 2 00:20:01 2025 +0800
+
+    main.py with udp video
+
+[33mcommit 8bf322219b24ba64597841fafd793bbef8b53d9b[m
+Author: tangerineflames <3455985135@qq.com>
+Date:   Tue Dec 2 00:18:18 2025 +0800
+
+    main.py with noise and health
+
+[33mcommit 5215fdc29fa47c2071ae904a039123b681bb5c4d[m[33m ([m[1;31morigin/master[m[33m)[m
+Author: tangerineflames <3455985135@qq.com>
+Date:   Mon Dec 1 22:50:38 2025 +0800
+
+    main.py with udp video
+
+[33mcommit 6029887f402a74c3c189e03a0cc5021bece710d7[m
+Author: tangerineflames <3455985135@qq.com>
+Date:   Fri Nov 14 22:09:03 2025 +0800
+
+    main.py version3 and new requirements
+
+[33mcommit 66777a9efb9e0fa2e7ce4b91073c45842d2957b5[m
+Author: tangerineflames <3455985135@qq.com>
+Date:   Fri Nov 14 21:40:05 2025 +0800
+
+    main.py with websocket
+
+[33mcommit 64c219fda868a5a5a8f5dcdc778477eebf2f5b55[m
+Author: tangerineflames <3455985135@qq.com>
+Date:   Fri Nov 14 21:15:43 2025 +0800
+
+    main.py version2
+
+[33mcommit 140200b029f08db46634b0b028d8052294b6bd0c[m
+Author: tangerineflames <3455985135@qq.com>
+Date:   Wed Nov 12 22:43:26 2025 +0800
+
+    yamlversion2
+
+[33mcommit fd60f12339627f1d5ac9576e5bcaba9daae2869a[m
+Author: tangerineflames <3455985135@qq.com>
+Date:   Wed Nov 12 22:20:17 2025 +0800
+
+    Fix default parameter warning in main2
+
+[33mcommit d3e2c37aded8ff3aa05e21b624cb65aa4ccc8464[m
+Author: tangerineflames <3455985135@qq.com>
+Date:   Wed Nov 12 22:02:23 2025 +0800
+
+    Fix default parameter warning
+
+[33mcommit 44e09e9fe7f38519f518f02eed21fb90bd83fc6b[m
+Author: tangerineflames <3455985135@qq.com>
+Date:   Wed Nov 12 21:51:50 2025 +0800
+
+    Fix default parameter warning in main
+
+[33mcommit 52ab9fc276746ebb85e649f84994cba6b02515e2[m
+Author: tangerineflames <3455985135@qq.com>
+Date:   Wed Nov 12 21:40:21 2025 +0800
+
+    Fix default parameter warnings in main.py
+
+[33mcommit 0f88df3e986f2f39a4a786a01b3d90069a7705f8[m
+Author: tangerineflames <3455985135@qq.com>
+Date:   Wed Nov 12 21:18:33 2025 +0800
+
+    Update dependencie
+
+[33mcommit 3b90726a401fa291185e0693eadafb3b2f3579eb[m
+Author: tangerineflames <3455985135@qq.com>
+Date:   Wed Nov 12 21:06:08 2025 +0800
+
+    Update dependencies
+
+[33mcommit 3e8578f3feb2b9fda0ad0c3e172c64fa86eb819a[m
+Author: tangerineflames <3455985135@qq.com>
+Date:   Wed Nov 12 21:01:13 2025 +0800
+
+    Updated backend to integrate environment data and alerts
+
+[33mcommit 6b63d4f6d813b5405dd39d6c8ed5b98d50b0320f[m
+Author: tangerineflames <3455985135@qq.com>
+Date:   Tue Nov 11 23:05:55 2025 +0800
+
+    feat: auto run create_tables before start
+
+[33mcommit 2f615f99dc73fd1d104344e5354e3437197f0657[m
+Author: tangerineflames <3455985135@qq.com>
+Date:   Tue Nov 11 22:26:23 2025 +0800
+
+    add python-multipart for file uploads
+
+[33mcommit 3445ed052e65af950d73fe31202aa3d846542c41[m
+Author: tangerineflames <3455985135@qq.com>
+Date:   Tue Nov 11 21:33:26 2025 +0800
+
+    second commit
+
+[33mcommit bb166bc78b8ffdc717d99e42062a4d53df8b117d[m
+Author: tangerineflames <3455985135@qq.com>
+Date:   Tue Nov 11 21:28:56 2025 +0800
+
+    second commit
+
+[33mcommit 0b2117fb7b890b28678745e58ff71a3c3fa63f8a[m
+Author: tangerineflames <3455985135@qq.com>
+Date:   Tue Nov 11 20:26:09 2025 +0800
+
+    first commit
