@@ -22,6 +22,22 @@ from schemas import (
 )
 
 # ================================================================
+# 全局配置：默认 child_id（POST 时可以不传）
+# ================================================================
+DEFAULT_CHILD_ID = "default"   # 你也可以改成 "c001" 看自己喜好
+
+def normalize_child_id(child_id: Optional[str]) -> str:
+    """
+    把 None / 空字符串 都统一换成一个默认 child_id，
+    这样设备发数据就可以不带 child_id 了。
+    """
+    if child_id is None:
+        return DEFAULT_CHILD_ID
+    cid = child_id.strip()
+    return cid or DEFAULT_CHILD_ID
+
+
+# ================================================================
 # FastAPI 初始化 + Database 初始化
 # ================================================================
 app = FastAPI(title="Remote Care API (Unified, UDP Video)")
@@ -38,12 +54,22 @@ def get_db():
 def ping():
     return {"ok": True, "msg": "remote-care backend running (with UDP video)"}
 
+
 # ================================================================
 # 环境数据（带噪音）
 # ================================================================
 @app.post("/api/environment", response_model=EnvironmentOut)
 def create_environment(item: EnvironmentIn, db: Session = Depends(get_db)):
-    obj = Environment(**item.model_dump())
+    # ✅ 不传 child_id 时自动使用 DEFAULT_CHILD_ID
+    child_id = normalize_child_id(item.child_id)
+
+    obj = Environment(
+        child_id=child_id,
+        temperature=item.temperature,
+        humidity=item.humidity,
+        light_lux=item.light_lux,
+        noise_db=item.noise_db,
+    )
     db.add(obj)
     db.commit()
     db.refresh(obj)
@@ -51,15 +77,8 @@ def create_environment(item: EnvironmentIn, db: Session = Depends(get_db)):
     # 自动分析规则
     analyze_environment(db, obj)
 
-    return EnvironmentOut(
-        id=obj.id,
-        child_id=obj.child_id,
-        temperature=obj.temperature,
-        humidity=obj.humidity,
-        light_lux=obj.light_lux,
-        noise_db=obj.noise_db,
-        created_at=obj.created_at,
-    )
+    # 你 schemas.py 里用了 from_attributes=True，可以直接这样返回
+    return EnvironmentOut.model_validate(obj)
 
 @app.get("/api/environment", response_model=List[EnvironmentOut])
 def list_environment(child_id: str, db: Session = Depends(get_db)):
@@ -69,42 +88,28 @@ def list_environment(child_id: str, db: Session = Depends(get_db)):
         .order_by(Environment.created_at.desc())
         .all()
     )
-    return [
-        EnvironmentOut(
-            id=o.id,
-            child_id=o.child_id,
-            temperature=o.temperature,
-            humidity=o.humidity,
-            light_lux=o.light_lux,
-            noise_db=o.noise_db,
-            created_at=o.created_at,
-        )
-        for o in q
-    ]
+    return [EnvironmentOut.model_validate(o) for o in q]
+
 
 # ================================================================
 # 文本情绪
 # ================================================================
 @app.post("/api/textlog", response_model=TextLogOut)
 def create_textlog(item: TextLogIn, db: Session = Depends(get_db)):
+    child_id = normalize_child_id(item.child_id)
+
     score = item.sentiment
     if score is None:
         score = rule_based_sentiment(item.content)
 
-    obj = TextLog(child_id=item.child_id, content=item.content, sentiment=score)
+    obj = TextLog(child_id=child_id, content=item.content, sentiment=score)
     db.add(obj)
     db.commit()
     db.refresh(obj)
 
     analyze_textlog(db, obj)
 
-    return TextLogOut(
-        id=obj.id,
-        child_id=obj.child_id,
-        content=obj.content,
-        sentiment=obj.sentiment,
-        created_at=obj.created_at,
-    )
+    return TextLogOut.model_validate(obj)
 
 @app.get("/api/textlog", response_model=List[TextLogOut])
 def list_textlog(child_id: str, db: Session = Depends(get_db)):
@@ -114,16 +119,8 @@ def list_textlog(child_id: str, db: Session = Depends(get_db)):
         .order_by(TextLog.created_at.desc())
         .all()
     )
-    return [
-        TextLogOut(
-            id=o.id,
-            child_id=o.child_id,
-            content=o.content,
-            sentiment=o.sentiment,
-            created_at=o.created_at,
-        )
-        for o in q
-    ]
+    return [TextLogOut.model_validate(o) for o in q]
+
 
 # ================================================================
 # 预警
@@ -136,19 +133,7 @@ def list_alerts(child_id: str, db: Session = Depends(get_db)):
         .order_by(Alert.created_at.desc())
         .all()
     )
-    return [
-        AlertOut(
-            id=o.id,
-            child_id=o.child_id,
-            level=o.level,
-            title=o.title,
-            message=o.message,
-            source=o.source,
-            acknowledged=o.acknowledged,
-            created_at=o.created_at,
-        )
-        for o in q
-    ]
+    return [AlertOut.model_validate(o) for o in q]
 
 @app.post("/api/alerts/{aid}/ack")
 def ack_alert(aid: int, db: Session = Depends(get_db)):
@@ -159,59 +144,51 @@ def ack_alert(aid: int, db: Session = Depends(get_db)):
     db.commit()
     return {"ok": True}
 
+
 # ================================================================
 # 提醒
 # ================================================================
 @app.post("/api/reminder", response_model=ReminderOut)
 def create_reminder(item: ReminderIn, db: Session = Depends(get_db)):
-    obj = Reminder(**item.model_dump())
+    child_id = normalize_child_id(item.child_id)
+
+    obj = Reminder(
+        child_id=child_id,
+        title=item.title,
+        cron=item.cron,
+        channel=item.channel,
+    )
     db.add(obj)
     db.commit()
     db.refresh(obj)
 
-    return ReminderOut(
-        id=obj.id,
-        child_id=obj.child_id,
-        title=obj.title,
-        cron=obj.cron,
-        channel=obj.channel,
-        created_at=obj.created_at,
-    )
+    return ReminderOut.model_validate(obj)
 
 @app.get("/api/reminder", response_model=List[ReminderOut])
 def list_reminder(child_id: str, db: Session = Depends(get_db)):
     q = db.query(Reminder).filter(Reminder.child_id == child_id).all()
-    return [
-        ReminderOut(
-            id=o.id,
-            child_id=o.child_id,
-            title=o.title,
-            cron=o.cron,
-            channel=o.channel,
-            created_at=o.created_at,
-        )
-        for o in q
-    ]
+    return [ReminderOut.model_validate(o) for o in q]
+
 
 # ================================================================
 # ✅ 个人健康：心率 & 血氧
 # ================================================================
 @app.post("/api/health", response_model=HealthOut)
 def create_health(item: HealthIn, db: Session = Depends(get_db)):
-    obj = HealthStatus(**item.model_dump())
+    child_id = normalize_child_id(item.child_id)
+
+    obj = HealthStatus(
+        child_id=child_id,
+        heart_rate=item.heart_rate,
+        spo2=item.spo2,
+    )
     db.add(obj)
     db.commit()
     db.refresh(obj)
 
     analyze_health(db, obj)
 
-    return HealthOut(
-        id=obj.id,
-        child_id=obj.child_id,
-        heart_rate=obj.heart_rate,
-        spo2=obj.spo2,
-        created_at=obj.created_at,
-    )
+    return HealthOut.model_validate(obj)
 
 @app.get("/api/health", response_model=List[HealthOut])
 def list_health(child_id: str, db: Session = Depends(get_db)):
@@ -221,16 +198,8 @@ def list_health(child_id: str, db: Session = Depends(get_db)):
         .order_by(HealthStatus.created_at.desc())
         .all()
     )
-    return [
-        HealthOut(
-            id=o.id,
-            child_id=o.child_id,
-            heart_rate=o.heart_rate,
-            spo2=o.spo2,
-            created_at=o.created_at,
-        )
-        for o in q
-    ]
+    return [HealthOut.model_validate(o) for o in q]
+
 
 # ================================================================
 # 规则引擎
@@ -345,6 +314,7 @@ def analyze_health(db: Session, h: HealthStatus):
             title="血氧偏低",
             message=f"当前血氧约 {spo2:.1f}%，建议及时关注。",
         )
+
 
 # ================================================================
 # ✅ UDP 视频接收 + MJPEG 输出（保持不变）

@@ -3,21 +3,29 @@ from pydantic import BaseModel, ConfigDict
 from typing import Optional
 from datetime import datetime
 
-# ---------- 文本日志 ----------
-class TextLogIn(BaseModel):
-    child_id: str
+# ---------------- 文本日志 ----------------
+
+class TextLogBase(BaseModel):
     content: str
-    sentiment: Optional[float] = None
+    sentiment: Optional[float] = None  # 情绪分可以前端传，也可以后端算
 
 
-class TextLogOut(TextLogIn):
+class TextLogIn(TextLogBase):
+    # ✅ 可不传；单片机 / 简易客户端可以不管 child_id
+    child_id: Optional[str] = None
+
+
+class TextLogOut(TextLogBase):
+    # ✅ 输出里我们保证一定有 child_id（后端会自动补）
     id: int
+    child_id: str
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
 
-# ---------- 预警 ----------
+# ---------------- 预警 ----------------
+
 class AlertOut(BaseModel):
     id: int
     child_id: str
@@ -31,46 +39,64 @@ class AlertOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-# ---------- 环境 ----------
-class EnvironmentIn(BaseModel):
-    child_id: str
+# ---------------- 环境 ----------------
+
+class EnvironmentBase(BaseModel):
     temperature: Optional[float] = None
     humidity: Optional[float] = None
     light_lux: Optional[float] = None
-    noise_db: Optional[float] = None  # ✅ 新增：噪音（dB）
+    noise_db: Optional[float] = None  # ✅ 噪音（dB）
 
 
-class EnvironmentOut(EnvironmentIn):
+class EnvironmentIn(EnvironmentBase):
+    # ✅ 可不传
+    child_id: Optional[str] = None
+
+
+class EnvironmentOut(EnvironmentBase):
     id: int
+    child_id: str
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
 
-# ---------- 提醒 ----------
-class ReminderIn(BaseModel):
-    child_id: str
+# ---------------- 提醒 ----------------
+
+class ReminderBase(BaseModel):
     title: str
-    cron: str         # 例如：DAILY 20:30
+    cron: str          # 例如：DAILY 20:30
     channel: str = "multi"
 
 
-class ReminderOut(ReminderIn):
+class ReminderIn(ReminderBase):
+    # ✅ 可不传
+    child_id: Optional[str] = None
+
+
+class ReminderOut(ReminderBase):
     id: int
+    child_id: str
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
 
-# ---------- 健康 ----------
-class HealthIn(BaseModel):
-    child_id: str
+# ---------------- 健康 ----------------
+
+class HealthBase(BaseModel):
     heart_rate: Optional[int] = None   # 心率（次/分）
     spo2: Optional[float] = None       # 血氧 %
 
 
-class HealthOut(HealthIn):
+class HealthIn(HealthBase):
+    # ✅ 可不传
+    child_id: Optional[str] = None
+
+
+class HealthOut(HealthBase):
     id: int
+    child_id: str
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
