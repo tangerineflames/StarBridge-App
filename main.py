@@ -80,143 +80,60 @@ def create_environment(item: EnvironmentIn, db: Session = Depends(get_db)):
     # 你 schemas.py 里用了 from_attributes=True，可以直接这样返回
     return EnvironmentOut.model_validate(obj)
 
-from typing import Optional
-
 @app.get("/api/environment", response_model=List[EnvironmentOut])
-def list_environment(child_id: Optional[str] = None,
-                     db: Session = Depends(get_db)):
-    cid = normalize_child_id(child_id)
+def list_environment(child_id: str, db: Session = Depends(get_db)):
     q = (
         db.query(Environment)
-        .filter(Environment.child_id == cid)
+        .filter(Environment.child_id == child_id)
         .order_by(Environment.created_at.desc())
         .all()
     )
     return [EnvironmentOut.model_validate(o) for o in q]
 
-# ================================================================
-# 文本流状态机：用来区分【孩子文本 / AI 回复】
-# ================================================================
-_text_lock = threading.Lock()
-_expect_child_text = True   # True：下一条非 "1" 当作孩子；False：当作 AI
 
-
-# ❗这里建议去掉 response_model=TextLogOut，因为有时会返回 "忽略了 AI" 这种简单信息
-@app.post("/api/textlog")
+# ================================================================
+# 文本情绪
+# ================================================================
+@app.post("/api/textlog", response_model=TextLogOut)
 def create_textlog(item: TextLogIn, db: Session = Depends(get_db)):
-    global _expect_child_text
-
-    text = (item.content or "").strip()
-    if not text:
-        return {"ok": False, "msg": "empty text"}
-
-    # 0️⃣ 收到 "1"：只当标记用，不入库
-    if text == "1":
-        with _text_lock:
-            # 重置为“下一条非1的文本当作孩子”
-            _expect_child_text = True
-        return {"ok": True, "msg": "marker 1 received, no log created"}
-
-    # 1️⃣ 这里一定是非 "1" 文本：根据当前状态判断是孩子还是 AI
-    with _text_lock:
-        is_child_text = _expect_child_text
-        # 每处理一条非 "1"，就在孩子 / AI 间切换
-        _expect_child_text = not _expect_child_text
-
-    # 2️⃣ 如果是 AI 回复 -> 直接忽略（不写数据库）
-    if not is_child_text:
-        return {"ok": True, "msg": "ai reply ignored"}
-
-    # 3️⃣ 走到这里：确定是孩子心情，正常入库并做情绪分析
-    #    TextLogIn 里 child_id 可以是可选的，没传就走默认
-    child_id = normalize_child_id(getattr(item, "child_id", None))
+    child_id = normalize_child_id(item.child_id)
 
     score = item.sentiment
     if score is None:
-        score = rule_based_sentiment(text)
+        score = rule_based_sentiment(item.content)
 
-    obj = TextLog(child_id=child_id, content=text, sentiment=score)
+    obj = TextLog(child_id=child_id, content=item.content, sentiment=score)
     db.add(obj)
     db.commit()
     db.refresh(obj)
 
     analyze_textlog(db, obj)
 
-    # 前端其实只看 status_code=200，不用关心具体字段
-    return {
-        "ok": True,
-        "id": obj.id,
-        "sentiment": obj.sentiment,
-        "child_id": obj.child_id,
-        "created_at": obj.created_at.isoformat() if obj.created_at else None,
-    }
-'''
-@app.post("/api/textlog")
-def create_textlog(item: TextLogIn, db: Session = Depends(get_db)):
-    """
-    调试版：
-    - 所有非空文本都直接当作孩子日志写入数据库（包括 "1"、AI 回复）
-    - 不再区分孩子 / AI
-    """
-    text = (item.content or "").strip()
-    if not text:
-        return {"ok": False, "msg": "empty text"}
+    return TextLogOut.model_validate(obj)
 
-    # child_id 可不传，统一走默认
-    child_id = normalize_child_id(getattr(item, "child_id", None))
-
-    # 情绪分：如果没传就用规则算
-    score = item.sentiment
-    if score is None:
-        score = rule_based_sentiment(text)
-
-    obj = TextLog(child_id=child_id, content=text, sentiment=score)
-    db.add(obj)
-    db.commit()
-    db.refresh(obj)
-
-    # 还是可以做情绪预警
-    analyze_textlog(db, obj)
-
-    # 返回一个简单 JSON，前端其实只看 200 即可
-    return {
-        "ok": True,
-        "id": obj.id,
-        "content": obj.content,
-        "sentiment": obj.sentiment,
-        "child_id": obj.child_id,
-        "created_at": obj.created_at.isoformat() if obj.created_at else None,
-    }
-'''
 @app.get("/api/textlog", response_model=List[TextLogOut])
-def list_textlog(child_id: Optional[str] = None,
-                 db: Session = Depends(get_db)):
-    cid = normalize_child_id(child_id)
+def list_textlog(child_id: str, db: Session = Depends(get_db)):
     q = (
         db.query(TextLog)
-        .filter(TextLog.child_id == cid)
+        .filter(TextLog.child_id == child_id)
         .order_by(TextLog.created_at.desc())
         .all()
     )
     return [TextLogOut.model_validate(o) for o in q]
 
 
-
 # ================================================================
 # 预警
 # ================================================================
 @app.get("/api/alerts", response_model=List[AlertOut])
-def list_alerts(child_id: Optional[str] = None,
-                db: Session = Depends(get_db)):
-    cid = normalize_child_id(child_id)
+def list_alerts(child_id: str, db: Session = Depends(get_db)):
     q = (
         db.query(Alert)
-        .filter(Alert.child_id == cid)
+        .filter(Alert.child_id == child_id)
         .order_by(Alert.created_at.desc())
         .all()
     )
     return [AlertOut.model_validate(o) for o in q]
-
 
 @app.post("/api/alerts/{aid}/ack")
 def ack_alert(aid: int, db: Session = Depends(get_db)):
@@ -248,17 +165,9 @@ def create_reminder(item: ReminderIn, db: Session = Depends(get_db)):
     return ReminderOut.model_validate(obj)
 
 @app.get("/api/reminder", response_model=List[ReminderOut])
-def list_reminder(child_id: Optional[str] = None,
-                  db: Session = Depends(get_db)):
-    cid = normalize_child_id(child_id)
-    q = (
-        db.query(Reminder)
-        .filter(Reminder.child_id == cid)
-        .order_by(Reminder.created_at.desc())
-        .all()
-    )
+def list_reminder(child_id: str, db: Session = Depends(get_db)):
+    q = db.query(Reminder).filter(Reminder.child_id == child_id).all()
     return [ReminderOut.model_validate(o) for o in q]
-
 
 
 # ================================================================
@@ -282,17 +191,14 @@ def create_health(item: HealthIn, db: Session = Depends(get_db)):
     return HealthOut.model_validate(obj)
 
 @app.get("/api/health", response_model=List[HealthOut])
-def list_health(child_id: Optional[str] = None,
-                db: Session = Depends(get_db)):
-    cid = normalize_child_id(child_id)
+def list_health(child_id: str, db: Session = Depends(get_db)):
     q = (
         db.query(HealthStatus)
-        .filter(HealthStatus.child_id == cid)
+        .filter(HealthStatus.child_id == child_id)
         .order_by(HealthStatus.created_at.desc())
         .all()
     )
     return [HealthOut.model_validate(o) for o in q]
-
 
 
 # ================================================================
