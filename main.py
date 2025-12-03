@@ -100,7 +100,7 @@ def list_environment(child_id: Optional[str] = None,
 _text_lock = threading.Lock()
 _expect_child_text = True   # True：下一条非 "1" 当作孩子；False：当作 AI
 
-'''
+
 # ❗这里建议去掉 response_model=TextLogOut，因为有时会返回 "忽略了 AI" 这种简单信息
 @app.post("/api/textlog")
 def create_textlog(item: TextLogIn, db: Session = Depends(get_db)):
@@ -187,7 +187,7 @@ def create_textlog(item: TextLogIn, db: Session = Depends(get_db)):
         "child_id": obj.child_id,
         "created_at": obj.created_at.isoformat() if obj.created_at else None,
     }
-
+'''
 @app.get("/api/textlog", response_model=List[TextLogOut])
 def list_textlog(child_id: Optional[str] = None,
                  db: Session = Depends(get_db)):
