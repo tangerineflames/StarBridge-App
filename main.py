@@ -94,27 +94,62 @@ def list_environment(child_id: Optional[str] = None,
     )
     return [EnvironmentOut.model_validate(o) for o in q]
 
-
-
 # ================================================================
-# 文本情绪
+# 文本流状态机：用来区分【孩子文本 / AI 回复】
 # ================================================================
-@app.post("/api/textlog", response_model=TextLogOut)
+_text_lock = threading.Lock()
+_expect_child_text = True   # True：下一条非 "1" 当作孩子；False：当作 AI
+
+# ❗这里建议去掉 response_model=TextLogOut，因为有时会返回 "忽略了 AI" 这种简单信息
+@app.post("/api/textlog")
 def create_textlog(item: TextLogIn, db: Session = Depends(get_db)):
-    child_id = normalize_child_id(item.child_id)
+    global _expect_child_text
+
+    text = (item.content or "").strip()
+    if not text:
+        return {"ok": False, "msg": "empty text"}
+
+    # 0️⃣ 收到 "1"：只当标记用，不入库
+    if text == "1":
+        with _text_lock:
+            # 重置为“下一条非1的文本当作孩子”
+            _expect_child_text = True
+        return {"ok": True, "msg": "marker 1 received, no log created"}
+
+    # 1️⃣ 这里一定是非 "1" 文本：根据当前状态判断是孩子还是 AI
+    with _text_lock:
+        is_child_text = _expect_child_text
+        # 每处理一条非 "1"，就在孩子 / AI 间切换
+        _expect_child_text = not _expect_child_text
+
+    # 2️⃣ 如果是 AI 回复 -> 直接忽略（不写数据库）
+    if not is_child_text:
+        return {"ok": True, "msg": "ai reply ignored"}
+
+    # 3️⃣ 走到这里：确定是孩子心情，正常入库并做情绪分析
+    #    TextLogIn 里 child_id 可以是可选的，没传就走默认
+    child_id = normalize_child_id(getattr(item, "child_id", None))
 
     score = item.sentiment
     if score is None:
-        score = rule_based_sentiment(item.content)
+        score = rule_based_sentiment(text)
 
-    obj = TextLog(child_id=child_id, content=item.content, sentiment=score)
+    obj = TextLog(child_id=child_id, content=text, sentiment=score)
     db.add(obj)
     db.commit()
     db.refresh(obj)
 
     analyze_textlog(db, obj)
 
-    return TextLogOut.model_validate(obj)
+    # 前端其实只看 status_code=200，不用关心具体字段
+    return {
+        "ok": True,
+        "id": obj.id,
+        "sentiment": obj.sentiment,
+        "child_id": obj.child_id,
+        "created_at": obj.created_at.isoformat() if obj.created_at else None,
+    }
+
 
 @app.get("/api/textlog", response_model=List[TextLogOut])
 def list_textlog(child_id: Optional[str] = None,
