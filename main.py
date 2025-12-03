@@ -6,7 +6,7 @@ import time
 
 import cv2
 import numpy as np
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -97,22 +97,61 @@ def list_environment(child_id: Optional[str] = None,
 # ================================================================
 # 文本情绪
 # ================================================================
-@app.post("/api/textlog", response_model=TextLogOut)
+@app.post("/api/textlog")
 def create_textlog(item: TextLogIn, db: Session = Depends(get_db)):
+    """
+    同一个接口：
+    - {"content": "..."}  -> 孩子说的话，写 TextLog
+    - {"text": "..."}     -> AI 说的话，写 AiLog
+    """
     child_id = normalize_child_id(item.child_id)
 
-    score = item.sentiment
-    if score is None:
-        score = rule_based_sentiment(item.content)
+    # 先把 None 变成 ""，顺手 strip 一下
+    content = (item.content or "").strip()
+    ai_text = (item.text or "").strip()
 
-    obj = TextLog(child_id=child_id, content=item.content, sentiment=score)
+    # 两个都空，直接 400
+    if not content and not ai_text:
+        raise HTTPException(status_code=400, detail="content or text required")
+
+    # ================== 情况 1：有 content（孩子文本） ==================
+    if content:
+        score = item.sentiment
+        if score is None:
+            score = rule_based_sentiment(content)
+
+        obj = TextLog(
+            child_id=child_id,
+            content=content,
+            sentiment=score,
+        )
+        db.add(obj)
+        db.commit()
+        db.refresh(obj)
+
+        analyze_textlog(db, obj)
+
+        return {
+            "ok": True,
+            "kind": "child",  # 标记一下是孩子文本
+            "data": TextLogOut.model_validate(obj),
+        }
+
+    # ================== 情况 2：没有 content，有 text（AI 回复） ==================
+    obj = AiLog(
+        child_id=child_id,
+        text=ai_text,
+    )
     db.add(obj)
     db.commit()
     db.refresh(obj)
 
-    analyze_textlog(db, obj)
+    return {
+        "ok": True,
+        "kind": "ai",   # 标记一下是 AI 文本
+        "data": AiLogOut.model_validate(obj),
+    }
 
-    return TextLogOut.model_validate(obj)
 
 from typing import Optional
 
@@ -129,6 +168,7 @@ def list_textlog(child_id: Optional[str] = None,
         .all()
     )
     return [TextLogOut.model_validate(o) for o in q]
+
 @app.get("/api/textlog/ai", response_model=List[AiLogOut])
 def list_ai_textlog(child_id: Optional[str] = None,
                     db: Session = Depends(get_db)):
