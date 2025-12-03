@@ -81,15 +81,16 @@ def create_environment(item: EnvironmentIn, db: Session = Depends(get_db)):
     return EnvironmentOut.model_validate(obj)
 
 @app.get("/api/environment", response_model=List[EnvironmentOut])
-def list_environment(child_id: str, db: Session = Depends(get_db)):
+def list_environment(child_id: Optional[str] = None,
+                     db: Session = Depends(get_db)):
+    cid = normalize_child_id(child_id)
     q = (
         db.query(Environment)
-        .filter(Environment.child_id == child_id)
+        .filter(Environment.child_id == cid)
         .order_by(Environment.created_at.desc())
         .all()
     )
     return [EnvironmentOut.model_validate(o) for o in q]
-
 
 # ================================================================
 # 文本情绪
@@ -111,29 +112,38 @@ def create_textlog(item: TextLogIn, db: Session = Depends(get_db)):
 
     return TextLogOut.model_validate(obj)
 
+from typing import Optional
+
 @app.get("/api/textlog", response_model=List[TextLogOut])
-def list_textlog(child_id: str, db: Session = Depends(get_db)):
+def list_textlog(child_id: Optional[str] = None,
+                 db: Session = Depends(get_db)):
+    # 没传就用 DEFAULT_CHILD_ID（"default"）
+    cid = normalize_child_id(child_id)
+
     q = (
         db.query(TextLog)
-        .filter(TextLog.child_id == child_id)
+        .filter(TextLog.child_id == cid)
         .order_by(TextLog.created_at.desc())
         .all()
     )
     return [TextLogOut.model_validate(o) for o in q]
 
 
+
 # ================================================================
 # 预警
 # ================================================================
-@app.get("/api/alerts", response_model=List[AlertOut])
-def list_alerts(child_id: str, db: Session = Depends(get_db)):
+@app.get("/api/reminder", response_model=List[ReminderOut])
+def list_reminder(child_id: Optional[str] = None,
+                  db: Session = Depends(get_db)):
+    cid = normalize_child_id(child_id)
     q = (
-        db.query(Alert)
-        .filter(Alert.child_id == child_id)
-        .order_by(Alert.created_at.desc())
+        db.query(Reminder)
+        .filter(Reminder.child_id == cid)
+        .order_by(Reminder.created_at.desc())
         .all()
     )
-    return [AlertOut.model_validate(o) for o in q]
+    return [ReminderOut.model_validate(o) for o in q]
 
 @app.post("/api/alerts/{aid}/ack")
 def ack_alert(aid: int, db: Session = Depends(get_db)):
@@ -191,10 +201,12 @@ def create_health(item: HealthIn, db: Session = Depends(get_db)):
     return HealthOut.model_validate(obj)
 
 @app.get("/api/health", response_model=List[HealthOut])
-def list_health(child_id: str, db: Session = Depends(get_db)):
+def list_health(child_id: Optional[str] = None,
+                db: Session = Depends(get_db)):
+    cid = normalize_child_id(child_id)
     q = (
         db.query(HealthStatus)
-        .filter(HealthStatus.child_id == child_id)
+        .filter(HealthStatus.child_id == cid)
         .order_by(HealthStatus.created_at.desc())
         .all()
     )
