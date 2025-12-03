@@ -100,6 +100,7 @@ def list_environment(child_id: Optional[str] = None,
 _text_lock = threading.Lock()
 _expect_child_text = True   # True：下一条非 "1" 当作孩子；False：当作 AI
 
+'''
 # ❗这里建议去掉 response_model=TextLogOut，因为有时会返回 "忽略了 AI" 这种简单信息
 @app.post("/api/textlog")
 def create_textlog(item: TextLogIn, db: Session = Depends(get_db)):
@@ -149,7 +150,43 @@ def create_textlog(item: TextLogIn, db: Session = Depends(get_db)):
         "child_id": obj.child_id,
         "created_at": obj.created_at.isoformat() if obj.created_at else None,
     }
+'''
+@app.post("/api/textlog")
+def create_textlog(item: TextLogIn, db: Session = Depends(get_db)):
+    """
+    调试版：
+    - 所有非空文本都直接当作孩子日志写入数据库（包括 "1"、AI 回复）
+    - 不再区分孩子 / AI
+    """
+    text = (item.content or "").strip()
+    if not text:
+        return {"ok": False, "msg": "empty text"}
 
+    # child_id 可不传，统一走默认
+    child_id = normalize_child_id(getattr(item, "child_id", None))
+
+    # 情绪分：如果没传就用规则算
+    score = item.sentiment
+    if score is None:
+        score = rule_based_sentiment(text)
+
+    obj = TextLog(child_id=child_id, content=text, sentiment=score)
+    db.add(obj)
+    db.commit()
+    db.refresh(obj)
+
+    # 还是可以做情绪预警
+    analyze_textlog(db, obj)
+
+    # 返回一个简单 JSON，前端其实只看 200 即可
+    return {
+        "ok": True,
+        "id": obj.id,
+        "content": obj.content,
+        "sentiment": obj.sentiment,
+        "child_id": obj.child_id,
+        "created_at": obj.created_at.isoformat() if obj.created_at else None,
+    }
 
 @app.get("/api/textlog", response_model=List[TextLogOut])
 def list_textlog(child_id: Optional[str] = None,
