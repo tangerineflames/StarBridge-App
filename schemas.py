@@ -1,22 +1,22 @@
 # schemas.py
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, AliasChoices
 from typing import Optional
 from datetime import datetime
-
 # ---------------- 文本日志 ----------------
 
 class TextLogBase(BaseModel):
-    content: str
+    # ✅ 核心：content 同时支持 JSON 里的 "content" 和 "text"
+    content: str = Field(
+        validation_alias=AliasChoices("content", "text")
+    )
     sentiment: Optional[float] = None  # 情绪分可以前端传，也可以后端算
 
-
 class TextLogIn(TextLogBase):
-    # ✅ 可不传；单片机 / 简易客户端可以不管 child_id
+    # 可不传；单片机 / 简易客户端可以不管 child_id
     child_id: Optional[str] = None
 
-
 class TextLogOut(TextLogBase):
-    # ✅ 输出里我们保证一定有 child_id（后端会自动补）
+    # 输出里我们保证一定有 child_id（后端 normalize 后写进 DB）
     id: int
     child_id: str
     created_at: datetime
@@ -45,7 +45,7 @@ class EnvironmentBase(BaseModel):
     temperature: Optional[float] = None
     humidity: Optional[float] = None
     light_lux: Optional[float] = None
-    noise_db: Optional[float] = None  # ✅ 噪音（dB）
+    noise_db: Optional[float] = None  #噪音（dB）
 
 
 class EnvironmentIn(EnvironmentBase):
