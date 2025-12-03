@@ -5,16 +5,22 @@ from sqlalchemy.sql import func
 from database import Base
 
 class TextLog(Base):
-    __tablename__ = "textlogs"
+    __tablename__ = "text_logs"
+    id = Column(Integer, primary_key=True, index=True)
+    child_id = Column(String, index=True)
+    content = Column(Text)
+    sentiment = Column(Float, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+# ✅ 新增：专门存 AI 回复
+class AiLog(Base):
+    __tablename__ = "ai_logs"
 
     id = Column(Integer, primary_key=True, index=True)
-    child_id = Column(String(64), index=True, nullable=False)
-    content = Column(Text, nullable=False)
-    sentiment = Column(Float, nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-
-    def __repr__(self):
-        return f"<TextLog id={self.id} child_id={self.child_id}>"
+    child_id = Column(String, index=True)
+    text = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 class Alert(Base):
     __tablename__ = "alerts"

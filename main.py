@@ -12,14 +12,16 @@ from sqlalchemy.orm import Session
 
 # 本地模块
 from database import Base, engine, SessionLocal
-from models import Environment, TextLog, Alert, Reminder, HealthStatus
+from models import Environment, TextLog, Alert, Reminder, HealthStatus, AiLog
 from schemas import (
     EnvironmentIn, EnvironmentOut,
     TextLogIn, TextLogOut,
     AlertOut,
     ReminderIn, ReminderOut,
     HealthIn, HealthOut,
+    AiLogOut,   # ✅ 新增
 )
+
 
 # ================================================================
 # 全局配置：默认 child_id（POST 时可以不传）
@@ -127,6 +129,17 @@ def list_textlog(child_id: Optional[str] = None,
         .all()
     )
     return [TextLogOut.model_validate(o) for o in q]
+@app.get("/api/textlog/ai", response_model=List[AiLogOut])
+def list_ai_textlog(child_id: Optional[str] = None,
+                    db: Session = Depends(get_db)):
+    cid = normalize_child_id(child_id)
+    q = (
+        db.query(AiLog)
+        .filter(AiLog.child_id == cid)
+        .order_by(AiLog.created_at.desc())
+        .all()
+    )
+    return [AiLogOut.model_validate(o) for o in q]
 
 
 
